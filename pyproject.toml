@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "prototype"
+version = "0.1.0"
+description = ""
+authors = ["Cu64 <dongduongdev@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+langchain = "^0.2.6"
+langchain-core = "^0.2.10"
+langchain-community = "^0.2.6"
+langchain-text-splitters = "^0.2.2"
+langchain-openai = "^0.1.13"
+chromadb = "^0.5.3"
+gradio = "^4.37.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pyright]
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
