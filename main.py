@@ -1,91 +1,108 @@
 import json
 import os
-
 from langchain.docstore.document import Document
 from langchain_community.document_loaders.csv_loader import CSVLoader
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from dotenv import load_dotenv
+import gradio as gr
+from langchain.schema import AIMessage, HumanMessage
 
-os.environ["OPENAI_API_KEY"] = "lm-studio"
+# Load environment variables from .env file
+load_dotenv()
 
-"""
-def load_json_file():
-    docs = list()
-    with open("../scraper/courses.json", "r") as file:
-        data = json.load(file)
+# Set OpenAI API key from environment variable
+openai_api_key = os.getenv("OPENAI_API_KEY")
+if not openai_api_key:
+    raise ValueError("OpenAI API key not set in environment variables")
 
-    for course in data["courses"]:
-        content = ""
-        for key, value in course.items():
-            content += f"{key}: {value}\n"
-        docs.append(Document(page_content=content))
+# Initialize embeddings with correct API key
+embeddings = OpenAIEmbeddings(api_key=openai_api_key)
 
-    return docs
+# Directory for Chroma persistence
+persist_directory = "./chroma_db"
 
+# # Function to load JSON data
+# def load_json_file(file_path):
+#     docs = []
+#     with open(file_path, "r") as file:
+#         data = json.load(file)
+        
+#         if "courses.json" in file_path:
+#             for item in data["courses"]:
+#                 content = ""
+#                 for key, value in item.items():
+#                     content += f"{key}: {value}\n"
+#                 docs.append(Document(page_content=content))
 
-# loader = JSONLoader(file_path="../scraper/courses.json", jq_schema=".courses[]")
-# docs = loader.load()
-docs = load_json_file()
+#         elif "organizations.json" in file_path:
+#             for item in data["organizations"]:
+#                 content = ""
+#                 for key, value in item.items():
+#                     content += f"{key}: {value}\n"
+#                 docs.append(Document(page_content=content))
+#     return docs
 
-embeddings = OpenAIEmbeddings(
-    base_url="http://localhost:1234/v1",
-    check_embedding_ctx_length=False,
-    model="nomic-ai/nomic-embed-text-v1.5-GGUF",
-)
+# # Load course descriptions
+# course_docs = load_json_file("../scraper/courses.json")
 
+# # Load organizations
+# org_docs = load_json_file("../scraper/organizations.json")
 
-# Split docs into smaller chunks to fit SQLite Query
-def split_docs(docs):
-    chunk_size = 100
-    chunks = [docs[i : i + chunk_size] for i in range(0, len(docs), chunk_size)]
-    return chunks
+# # Function to split documents into chunks
+# def split_docs(docs, chunk_size=100):
+#     chunks = [docs[i:i + chunk_size] for i in range(0, len(docs), chunk_size)]
+#     return chunks
 
+# Check if embeddings already exist to avoid recomputation
+# if not os.path.exists(persist_directory):
+#     os.makedirs(persist_directory)
 
-docs_chunked = split_docs(docs)
+# Check if specific collections exist
+# course_descriptions_path = os.path.join(persist_directory, 'course_descriptions')
+# organizations_path = os.path.join(persist_directory, 'organizations')
+# grades_path = os.path.join(persist_directory, 'grades')
 
-for split in docs_chunked:
-    vectorstore = Chroma.from_documents(
-        split,
-        embeddings,
-        persist_directory="./chroma_db",
-        collection_name="course_descriptions",
-    )
+# # Create course descriptions embeddings if not exist
+# if not os.path.exists(course_descriptions_path):
+#     course_docs_chunked = split_docs(course_docs)
+#     for split in course_docs_chunked:
+#         vectorstore = Chroma.from_documents(
+#             split,
+#             embeddings,
+#             persist_directory=persist_directory,
+#             collection_name="course_descriptions",
+#         )
 
-# process grades csv
-loader = CSVLoader(file_path="../scraper/2023_msu_grades.csv")
-docs = loader.load()
-docs_chunked = split_docs(docs)
+# # Create organizations embeddings if not exist
+# if not os.path.exists(organizations_path):
+#     org_docs_chunked = split_docs(org_docs)
+#     for split in org_docs_chunked:
+#         vectorstore = Chroma.from_documents(
+#             split,
+#             embeddings,
+#             persist_directory=persist_directory,
+#             collection_name="organizations",
+#         )
 
-for split in docs_chunked:
-    vectorstore = Chroma.from_documents(
-        split,
-        embeddings,
-        persist_directory="./chroma_db",
-        collection_name="grades",
-    )
-""" ""
+# # Create grades embeddings if not exist
+# if not os.path.exists(grades_path):
+#     loader = CSVLoader(file_path="../scraper/2023_msu_grades.csv")
+#     grade_docs = loader.load()
+#     grade_docs_chunked = split_docs(grade_docs)
+#     for split in grade_docs_chunked:
+#         vectorstore = Chroma.from_documents(
+#             split,
+#             embeddings,
+#             persist_directory=persist_directory,
+#             collection_name="grades",
+#         )
 
-# embeddings = OpenAIEmbeddings(
-#    base_url="http://localhost:1234/v1",
-#    check_embedding_ctx_length=False,
-#    model="nomic-ai/nomic-embed-text-v1.5-GGUF",
-# )
+# Initialize LLM
+llm = ChatOpenAI(api_key=openai_api_key, model="gpt-4")
 
-embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-
-vectorstore = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
-
-
-# llm = ChatOpenAI(
-#    base_url="http://localhost:1234/v1",
-#    api_key="lm-studio",
-#    model="TheBloke/Llama-2-7B-Chat-GGUF/llama-2-7b-chat.Q8_0.gguf",
-# )
-
-llm = ChatOpenAI(model="gpt-4o")
-
-PROMPT_TEMPLATE = """[INST]You are an AI assistant, and provides academic advising to students at Michigan State University by using data from MSU grades dataset, MSU course descriptions dataset. You can answer questions about courses, professors, and grades. If you don't know, just say "I don't know", don't try to make up an answer.
+PROMPT_TEMPLATE = """[INST]You are an AI assistant, and provide academic advising to students at Michigan State University by using data from MSU grades dataset, MSU course descriptions dataset, and student organizations dataset. You can answer questions about courses, professors, grades, and student clubs/organizations. If you don't know, just say "I don't know", don't try to make up an answer.
 <context>
 {context}
 </context>
@@ -94,62 +111,57 @@ PROMPT_TEMPLATE = """[INST]You are an AI assistant, and provides academic advisi
 {question}
 </question>
 
-The response should be specific and use statistics or number when possible.[/INST]
+The response should be specific and use statistics or numbers when possible.[/INST]
 [Assistant]"""
 
-
-retriever = vectorstore.as_retriever()
-
-
+# Function to query the vectorstore and LLM
 def query_rag(query: str):
+    # Initialize vectorstores
     db_cd = Chroma(
-        persist_directory="./chroma_db",
+        persist_directory=persist_directory,
         embedding_function=embeddings,
         collection_name="course_descriptions",
     )
-
-    results = db_cd.similarity_search_with_relevance_scores(query, k=5)
-
-    print(f"Found {len(results)} results")
-    if len(results) == 0 or results[0][1] < 0.5:
-        print("I don't know")
-        exit(1)
-
-    context_text = "\n\n".join([doc.page_content for doc, _score in results])
-
     db_grades = Chroma(
-        persist_directory="./chroma_db",
+        persist_directory=persist_directory,
         embedding_function=embeddings,
         collection_name="grades",
     )
+    db_orgs = Chroma(
+        persist_directory=persist_directory,
+        embedding_function=embeddings,
+        collection_name="organizations",
+    )
 
-    results = db_grades.similarity_search_with_relevance_scores(query, k=20)
-    print(f"Found {len(results)} results")
+    # Search course descriptions
+    results_cd = db_cd.similarity_search_with_relevance_scores(query, k=5)
+    context_text_cd = "\n\n".join([doc.page_content for doc, _ in results_cd])
 
-    context_text += "\n\n".join([doc.page_content for doc, _score in results])
+    # Search grades
+    results_grades = db_grades.similarity_search_with_relevance_scores(query, k=5)
+    context_text_grades = "\n\n".join([doc.page_content for doc, _ in results_grades])
 
+    # Search organizations
+    results_orgs = db_orgs.similarity_search_with_relevance_scores(query, k=5)
+    context_text_orgs = "\n\n".join([doc.page_content for doc, _ in results_orgs])
+
+    # Combine contexts
+    context_text = context_text_cd + "\n\n" + context_text_grades + "\n\n" + context_text_orgs
+
+    # Format prompt
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
     prompt = prompt_template.format(context=context_text, question=query)
 
+    # Get response from LLM
     response_text = llm.invoke(prompt).content
 
-    sources = [doc.metadata.get("source", None) for doc, _score in results]
+    sources = [doc.metadata.get("source", None) for doc, _ in results_cd + results_grades + results_orgs]
 
     formatted_response = f"Response: {response_text}\n\nSources: {sources}"
     return formatted_response, response_text
 
-
-# query = "Should I take CSE 232 along with CSE 260? Why, why not?"
-# formatted_response, response_text = query_rag(query)
-# print(response_text)
-
-
-import gradio as gr
-from langchain.schema import AIMessage, HumanMessage
-
-
+# Prediction function for Gradio
 def predict(message, history):
-
     history_langchain_format = list()
     for human, ai in history:
         history_langchain_format.append(HumanMessage(content=human))
@@ -158,5 +170,13 @@ def predict(message, history):
     _, response_text = query_rag(message)
     return response_text
 
+# Setting specific size parameters for the Gradio interface
+chatbot = gr.ChatInterface(
+    fn=predict,
+    title="MSU Academic Advisor",
+    description="Ask about courses, professors, grades, and student organizations at MSU",
+    fill_height=True
+)
 
-gr.ChatInterface(predict).launch()
+# Launching the interface with share=True to create a public link
+chatbot.launch(share=True)
