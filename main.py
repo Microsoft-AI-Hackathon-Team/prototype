@@ -23,6 +23,7 @@ embeddings = OpenAIEmbeddings(api_key=openai_api_key)
 # Directory for Chroma persistence
 persist_directory = "./chroma_db"
 
+########################################################################
 # # Function to load JSON data
 # def load_json_file(file_path):
 #     docs = []
@@ -42,6 +43,12 @@ persist_directory = "./chroma_db"
 #                 for key, value in item.items():
 #                     content += f"{key}: {value}\n"
 #                 docs.append(Document(page_content=content))
+#         elif "programs.json" in file_path:
+#             for item in data["programs"]:
+#                 content = ""
+#                 for key, value in item.items():
+#                     content += f"{key}: {value}\n"
+#                 docs.append(Document(page_content=content))
 #     return docs
 
 # # Load course descriptions
@@ -50,18 +57,22 @@ persist_directory = "./chroma_db"
 # # Load organizations
 # org_docs = load_json_file("../scraper/organizations.json")
 
+# # Load Degree Requirements (Programs)
+# prog_docs = load_json_file("../scraper/programs.json")
+
 # # Function to split documents into chunks
 # def split_docs(docs, chunk_size=100):
 #     chunks = [docs[i:i + chunk_size] for i in range(0, len(docs), chunk_size)]
 #     return chunks
 
-# Check if embeddings already exist to avoid recomputation
+# # Check if embeddings already exist to avoid recomputation
 # if not os.path.exists(persist_directory):
 #     os.makedirs(persist_directory)
 
-# Check if specific collections exist
+# # Check if specific collections exist
 # course_descriptions_path = os.path.join(persist_directory, 'course_descriptions')
 # organizations_path = os.path.join(persist_directory, 'organizations')
+# programs_path = os.path.join(persist_directory, 'programs')
 # grades_path = os.path.join(persist_directory, 'grades')
 
 # # Create course descriptions embeddings if not exist
@@ -73,6 +84,16 @@ persist_directory = "./chroma_db"
 #             embeddings,
 #             persist_directory=persist_directory,
 #             collection_name="course_descriptions",
+#         )
+# # Create programs embeddings if not exist
+# if not os.path.exists(programs_path):
+#     prog_docs_chunked = split_docs(prog_docs)
+#     for split in prog_docs_chunked:
+#         vectorstore = Chroma.from_documents(
+#             split,
+#             embeddings,
+#             persist_directory=persist_directory,
+#             collection_name="programs",
 #         )
 
 # # Create organizations embeddings if not exist
@@ -98,9 +119,9 @@ persist_directory = "./chroma_db"
 #             persist_directory=persist_directory,
 #             collection_name="grades",
 #         )
-
+########################################################################
 # Initialize LLM
-llm = ChatOpenAI(api_key=openai_api_key, model="gpt-4")
+llm = ChatOpenAI(api_key=openai_api_key, model="gpt-3.5-turbo")
 
 PROMPT_TEMPLATE = """[INST]You are an AI assistant, and provide academic advising to students at Michigan State University by using data from MSU grades dataset, MSU course descriptions dataset, and student organizations dataset. You can answer questions about courses, professors, grades, and student clubs/organizations. If you don't know, just say "I don't know", don't try to make up an answer.
 <context>
@@ -132,6 +153,11 @@ def query_rag(query: str):
         embedding_function=embeddings,
         collection_name="organizations",
     )
+    db_prog = Chroma(
+        persist_directory=persist_directory,
+        embedding_function=embeddings,
+        collection_name="programs",
+    )
 
     # Search course descriptions
     results_cd = db_cd.similarity_search_with_relevance_scores(query, k=5)
@@ -145,8 +171,12 @@ def query_rag(query: str):
     results_orgs = db_orgs.similarity_search_with_relevance_scores(query, k=5)
     context_text_orgs = "\n\n".join([doc.page_content for doc, _ in results_orgs])
 
+    #Search programs
+    results_prog = db_prog.similarity_search_with_relevance_scores(query, k=5)
+    context_text_prog = "\n\n".join([doc.page_content for doc, _ in results_prog])
+
     # Combine contexts
-    context_text = context_text_cd + "\n\n" + context_text_grades + "\n\n" + context_text_orgs
+    context_text = context_text_cd + "\n\n" + context_text_grades + "\n\n" + context_text_orgs + "\n\n" + context_text_prog
 
     # Format prompt
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -155,7 +185,7 @@ def query_rag(query: str):
     # Get response from LLM
     response_text = llm.invoke(prompt).content
 
-    sources = [doc.metadata.get("source", None) for doc, _ in results_cd + results_grades + results_orgs]
+    sources = [doc.metadata.get("source", None) for doc, _ in results_cd + results_grades + results_orgs + results_prog]
 
     formatted_response = f"Response: {response_text}\n\nSources: {sources}"
     return formatted_response, response_text
@@ -173,8 +203,8 @@ def predict(message, history):
 # Setting specific size parameters for the Gradio interface
 chatbot = gr.ChatInterface(
     fn=predict,
-    title="MSU Academic Advisor",
-    description="Ask about courses, professors, grades, and student organizations at MSU",
+    title="Silly Billy",
+    description="Ask about courses, grades, and student organizations at MSU",
     fill_height=True
 )
 
